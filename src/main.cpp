@@ -1,9 +1,13 @@
-#include <pcap.h>
+#include <cstdint>
+#include <cstddef>
+#include <fstream>
 #include <iostream>
+#include <vector>
 #include <cstring>
+#include "../include/pcap_structs.h"
 #include "../include/itch_parser.h"
 
-// ---- Big-endian helpers ----
+// ---- your existing helpers (shortened) ----
 static inline uint16_t read_be16(const uint8_t* p) {
     return (uint16_t(p[0]) << 8) | uint16_t(p[1]);
 }
@@ -14,15 +18,14 @@ static inline uint64_t read_be64(const uint8_t* p) {
     return v;
 }
 
-// ---- MoldUDP64 decoder ----
 void process_moldudp64_payload(ITCHParser& parser, const uint8_t* buf, size_t len) {
     if (len < 20) return;
 
-    const uint8_t* p = buf;
+    const uint8_t* p   = buf;
     const uint8_t* end = buf + len;
 
     char session[11];
-    memcpy(session, p, 10);
+    std::memcpy(session, p, 10);
     session[10] = '\0';
     p += 10;
 
@@ -53,69 +56,50 @@ void process_moldudp64_payload(ITCHParser& parser, const uint8_t* buf, size_t le
         }
     }
 }
-
-// ---- VERY SIMPLE UDP payload extraction ----
-void process_pcap_packet(ITCHParser& parser, const uint8_t* pkt, size_t caplen) {
-    if (caplen < 42) return;  // Ethernet(14) + IPv4(min20) + UDP(8)
-
-    // Ethernet header = 14 bytes
-    const uint8_t* ip = pkt + 14;
-
-    // IPv4 header length
-    uint8_t ihl = ip[0] & 0x0F;     // in units of 32-bit words
-    size_t ip_header_len = ihl * 4;
-
-    if (caplen < 14 + ip_header_len + 8) return;
-
-    // UDP header is after IP header
-    const uint8_t* udp = ip + ip_header_len;
-
-    // UDP total length
-    uint16_t udp_len = (udp[4] << 8) | udp[5];
-    if (udp_len < 8) return;
-
-    // Payload starts after UDP header
-    const uint8_t* payload = udp + 8;
-    size_t payload_len = udp_len - 8;
-
-    // Clamp to captured length
-    size_t max_avail = caplen - (payload - pkt);
-    if (payload_len > max_avail) payload_len = max_avail;
-
-    // Process MoldUDP64 message
-    process_moldudp64_payload(parser, payload, payload_len);
-}
-
-// ---- main ----
 int main() {
     const char* filename = "../data/nasdaq.pcap";
 
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t* handle = pcap_open_offline(filename, errbuf);
-    if (!handle) {
-        std::cerr << "pcap_open_offline failed: " << errbuf << "\n";
+    std::ifstream in(filename, std::ios::binary);
+    if (!in) {
+        std::cerr << "Failed to open file: " << filename << "\n";
+        return 1;
+    }
+
+    file_header_t file_hdr{};
+    if (!in.read(reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr))) {
+        std::cerr << "Failed to read file_header_t\n";
         return 1;
     }
 
     ITCHParser parser;
 
-    const u_char* packetData;
-    struct pcap_pkthdr* header;
-
     while (true) {
-        int rc = pcap_next_ex(handle, &header, &packetData);
-        if (rc == 1) {
-            process_pcap_packet(parser,
-                                reinterpret_cast<const uint8_t*>(packetData),
-                                header->caplen);
-        }
-        else if (rc == -2) break;
-        else if (rc == -1) {
-            std::cerr << "Error: " << pcap_geterr(handle) << "\n";
+        packet_headers_t pkt_hdr{};
+
+        if (!in.read(reinterpret_cast<char*>(&pkt_hdr), sizeof(pkt_hdr))) {
+            if (!in.eof())
+                std::cerr << "Error reading packet_headers_t\n";
             break;
         }
+
+        uint32_t incl_len = pkt_hdr.m_pcap_hdr.incl_len;
+        if (incl_len < packet_headers_t::NETWORK_HEADER_LENGTH) {
+            std::cerr << "incl_len < NETWORK_HEADER_LENGTH, skipping\n";
+            continue;
+        }
+
+        uint32_t udp_payload_len = incl_len - packet_headers_t::NETWORK_HEADER_LENGTH;
+        if (udp_payload_len == 0) continue;
+
+        std::vector<uint8_t> payload(udp_payload_len);
+        if (!in.read(reinterpret_cast<char*>(payload.data()), udp_payload_len)) {
+            std::cerr << "Truncated UDP payload\n";
+            break;
+        }
+
+        // MoldUDP64 → ITCH
+        process_moldudp64_payload(parser, payload.data(), udp_payload_len);
     }
 
-    pcap_close(handle);
     return 0;
 }

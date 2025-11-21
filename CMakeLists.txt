@@ -11,6 +11,3 @@ add_executable(itch_parser
 )
 
 target_include_directories(itch_parser PRIVATE include)
-
-# Link pcap
-target_link_libraries(itch_parser PRIVATE pcap)
