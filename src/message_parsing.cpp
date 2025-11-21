@@ -4,92 +4,100 @@
 #include <cstring>
 
 // Implement parse_message as a member of ITCHParser
-void ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
-    if (length == 0) return;
+uint16_t ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
+    if (length == 0) return 0;
 
-    char message_type = static_cast<char>(buffer[0]);
-
-    switch (message_type) {
+    switch (char message_type = static_cast<char>(buffer[0])) {
         case 'A': {  // Add Order (no MPID)
             AddOrderMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);;
             msg.order_id = read_uint64(buffer, 11);
             msg.is_buy = (buffer[19] == 'B');
             msg.quantity = read_uint32(buffer, 20);
-            msg.symbol_id = symbol_to_id(reinterpret_cast<const char*>(buffer + 24));
+            if (symbol_lookup[msg.symbol_id].seen == false) {
+                // populate symbol lookup with human readable symbol at first occurrence
+                read_string(buffer, 24, symbol_lookup[msg.symbol_id].symbol, 8);
+                symbol_lookup[msg.symbol_id].seen = true;
+            }
             msg.price = read_uint32(buffer, 32);
 
             handle_add_order(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'F': {  // Add Order with MPID
             AddOrderMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);;
             msg.order_id = read_uint64(buffer, 11);
             msg.is_buy = (buffer[19] == 'B');
             msg.quantity = read_uint32(buffer, 20);
-            msg.symbol_id = symbol_to_id(reinterpret_cast<const char*>(buffer + 24));
+            if (symbol_lookup[msg.symbol_id].seen == false) {
+                // populate symbol lookup with human readable symbol at first occurrence
+                read_string(buffer, 24, symbol_lookup[msg.symbol_id].symbol, 8);
+                symbol_lookup[msg.symbol_id].seen = true;
+            }
             msg.price = read_uint32(buffer, 32);
 
             handle_add_order(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'E': {  // Order Executed
             OrderExecutedMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);
             msg.order_id = read_uint64(buffer, 11);
             msg.quantity_executed = read_uint32(buffer, 19);
 
             handle_order_executed(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'C': {  // Order Executed with Price
             OrderExecutedMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);
             msg.order_id = read_uint64(buffer, 11);
             msg.quantity_executed = read_uint32(buffer, 19);
             // ignoring execution price
 
             handle_order_executed(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'X': {  // Order Cancel
             OrderCancelMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);
             msg.order_id = read_uint64(buffer, 11);
             msg.quantity_cancelled = read_uint32(buffer, 19);
 
             handle_order_cancel(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'D': {  // Order Delete
             OrderDeleteMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);
             msg.order_id = read_uint64(buffer, 11);
 
             handle_order_delete(msg);
-            break;
+            return msg.symbol_id;
         }
 
         case 'U': {  // Order Replace
             OrderReplaceMessage msg{};
+            msg.symbol_id = read_uint16(buffer, 1);
             msg.orig_order_id = read_uint64(buffer, 11);
             msg.new_order_id = read_uint64(buffer, 19);
             msg.quantity = read_uint32(buffer, 27);
             msg.price = read_uint32(buffer, 31);
 
             handle_order_replace(msg);
-            break;
+            return msg.symbol_id;
         }
 
         default:
             break;
     }
-}
-
-Orderbook& ITCHParser::get_or_create_book(uint64_t symbol_id) {
-    // create book with symbol id constructor arg if it doesnt exist in the map
-    auto [it, inserted] = books.try_emplace(symbol_id, symbol_id);
-    return it->second;
+    return 0;
 }
 
 void ITCHParser::handle_add_order(const AddOrderMessage& msg) {
@@ -97,8 +105,11 @@ void ITCHParser::handle_add_order(const AddOrderMessage& msg) {
     uint64_t order_id = msg.order_id;
     Order order = msg.create_order();
 
-    // Get or create the orderbook for this symbol
-    Orderbook& book = get_or_create_book(msg.symbol_id);
+    // Get the orderbook, initialize if not already
+    Orderbook& book = books[msg.symbol_id];
+    if (!book.initialized) {
+        book.initialize(msg.symbol_id, symbol_lookup[msg.symbol_id].symbol);
+    }
     book.add_quantity(order);
 
     // add to orders map
@@ -106,14 +117,16 @@ void ITCHParser::handle_add_order(const AddOrderMessage& msg) {
 }
 
 void ITCHParser::handle_order_executed(const OrderExecutedMessage& msg) {
+    // Get orderbook, ignore if not initialized
+    Orderbook& book = books[msg.symbol_id];
+    if (!book.initialized) { return; }
+
     auto it = orders.find(msg.order_id);
     if (it == orders.end()) return;
 
     Order& order = it->second;
     order.quantity -= msg.quantity_executed; // reduce quantity
 
-    // Get or create the orderbook for this symbol
-    Orderbook& book = get_or_create_book(order.symbol_id);
     book.reduce_quantity(order.price, msg.quantity_executed, order.is_buy);
 
     if (order.quantity == 0) {
@@ -122,14 +135,15 @@ void ITCHParser::handle_order_executed(const OrderExecutedMessage& msg) {
 }
 
 void ITCHParser::handle_order_cancel(const OrderCancelMessage& msg) {
+    // Get orderbook, ignore if not initialized
+    Orderbook& book = books[msg.symbol_id];
+    if (!book.initialized) { return; }
+
     auto it = orders.find(msg.order_id);
     if (it == orders.end()) return;
 
     Order& order = it->second;
     order.quantity -= msg.quantity_cancelled; // reduce quantity
-
-    // Get or create the orderbook for this symbol
-    Orderbook& book = get_or_create_book(order.symbol_id);
 
     book.reduce_quantity(order.price, msg.quantity_cancelled, order.is_buy);
 
@@ -139,26 +153,31 @@ void ITCHParser::handle_order_cancel(const OrderCancelMessage& msg) {
 }
 
 void ITCHParser::handle_order_delete(const OrderDeleteMessage& msg) {
+    // Get orderbook, ignore if not initialized
+    Orderbook& book = books[msg.symbol_id];
+    if (!book.initialized) { return; }
+
     auto it = orders.find(msg.order_id);
     if (it == orders.end()) return;
 
     Order& order = it->second;
 
-    Orderbook& book = get_or_create_book(order.symbol_id);
     book.reduce_quantity(order.price, order.quantity, order.is_buy);
 
     orders.erase(it);
 }
 
 void ITCHParser::handle_order_replace(const OrderReplaceMessage& msg) {
+    // Get orderbook, ignore if not initialized
+    Orderbook& book = books[msg.symbol_id];
+    if (!book.initialized) { return; }
+
     auto it = orders.find(msg.orig_order_id);
     if (it == orders.end()) return;
     
     Order& old_order = it->second;
-    Order new_order = msg.create_order(old_order);
+    Order new_order = msg.create_order(old_order.is_buy);
 
-    // Delete old order
-    Orderbook& book = get_or_create_book(old_order.symbol_id);
     book.reduce_quantity(old_order.price, old_order.quantity, old_order.is_buy);
 
     // Add new order
@@ -169,7 +188,12 @@ void ITCHParser::handle_order_replace(const OrderReplaceMessage& msg) {
 
 }
 
-void ITCHParser::print_book(uint64_t symbol_id, size_t levels) {
-    Orderbook& book = get_or_create_book(symbol_id);
+void ITCHParser::print_book(uint16_t symbol_id, size_t levels) {
+    // Get orderbook, ignore if not initialized
+    Orderbook& book = books[symbol_id];
+    if (!book.initialized) {
+        std::cout << "Orderbook for symbol_id " << symbol_id << " not initialized yet." << std::endl;
+        return;
+    }
     book.print_book(levels);
 }

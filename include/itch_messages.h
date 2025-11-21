@@ -9,7 +9,7 @@
 // ----- ADD -----
 // New order | Message type "A" or "F"
 struct AddOrderMessage {
-    uint64_t symbol_id;
+    uint16_t symbol_id;
     uint64_t order_id;
     bool is_buy;
     uint32_t price;
@@ -24,12 +24,14 @@ struct AddOrderMessage {
 // ----- MODIFY -----
 // Execution | Message type "E"
 struct OrderExecutedMessage {
+    uint16_t symbol_id;
     uint64_t order_id;
     uint32_t quantity_executed;
 };
 
 // Execution with different price than original | Message type "C"
 struct OrderExecutedWithPriceMessage {
+    uint16_t symbol_id;
     uint64_t order_id;
     uint32_t quantity_executed;
     uint32_t execution_price;
@@ -37,26 +39,29 @@ struct OrderExecutedWithPriceMessage {
 
 // Partial cancellation | Message type "X"
 struct OrderCancelMessage {
+    uint16_t symbol_id;
     uint64_t order_id;
     uint32_t quantity_cancelled;
 };
 
 // Full cancellation | Message Type "D"
 struct OrderDeleteMessage {
+    uint16_t symbol_id;
     uint64_t order_id;
 };
 
 
-// Cancel + Replace order | Message Type "U"
+// Cancel & Replace order | Message Type "U"
 struct OrderReplaceMessage {
+    uint16_t symbol_id;
     uint64_t orig_order_id;
     uint64_t new_order_id;
     uint32_t price;
     uint32_t quantity;
 
     // remember to remove original order
-    Order create_order(const Order& orig_order) const {
-        return Order { orig_order.symbol_id, price, quantity, orig_order.is_buy };
+    Order create_order(bool is_buy) const {
+        return Order { symbol_id, price, quantity, is_buy };
     }
 };
 

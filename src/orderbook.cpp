@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <string>
 #include "../include/data_structs.h"
-#include "../include/parsing_helpers.h"
 
 // To store price levels, I am using std::vector.
 // This may not be the most optimal, depending on the number of levels we have to maintain.
@@ -13,13 +12,8 @@
 
 constexpr int MAX_PRICE_LEVELS_GUESS = 100;
 
-
-
-
 class Orderbook {
 private:
-    uint64_t symbol_id;
-    std::string symbol;
     std::vector<PriceLevel> bids; //sorted descending
     std::vector<PriceLevel> asks; //sorted ascending
 
@@ -70,11 +64,19 @@ private:
     }
 
 public:
-    explicit Orderbook(uint64_t symb_id)
-        : symbol_id(symb_id), symbol(symbol_id_to_symbol(symbol_id))
-    {
+    uint16_t symbol_id = 0;
+    std::string symbol;
+    bool initialized = false;
+
+    Orderbook() = default;
+
+    void initialize(uint16_t symb_id, const char* sym_name) {
+        if (initialized) return;          // don't re-init
+        symbol_id = symb_id;
+        symbol = std::string(sym_name);
         bids.reserve(MAX_PRICE_LEVELS_GUESS);
         asks.reserve(MAX_PRICE_LEVELS_GUESS);
+        initialized = true;
     }
 
     void print_book(size_t levels) {

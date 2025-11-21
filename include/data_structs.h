@@ -10,13 +10,13 @@ struct PriceLevel {
     uint32_t price;
     uint32_t quantity;
 
-    void display() {
+    void display() const {
         std::cout << quantity << " @ " << price_to_double(price) << "\n";
     }
 };
 
 struct Order {
-    uint64_t symbol_id;
+    uint16_t symbol_id;
     uint32_t price;
     uint32_t quantity;
     bool is_buy;
@@ -27,5 +27,12 @@ struct Order {
 
 struct LevelSearchResult {
     bool found;
-    int idx; // if not found, this is index to update, if not found, index to insert at
+    int idx; // if not found, this is the index to update, if not found, index to insert at
+};
+
+struct SymbolInfo {
+    bool seen = false;
+    char symbol[8]{};
+
+    SymbolInfo() = default;
 };

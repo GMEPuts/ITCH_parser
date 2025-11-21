@@ -30,23 +30,3 @@ inline void read_string(const uint8_t* buffer, size_t offset, char* dest, size_t
     // read into destination buffer
     std::memcpy(dest, buffer + offset, length);
 }
-
-// pack symbol char* into u64 for internal storage
-inline uint64_t symbol_to_id(const char* symbol) {
-    uint64_t result = 0;
-    for (int i = 0; i < 8; ++i) {
-        result = (result << 8) | static_cast<uint8_t>(symbol[i]);
-    }
-    return result;
-}
-// unpack
-inline std::string symbol_id_to_symbol(uint64_t symbol_id) {
-    std::string symbol(8, '\0');  // allocate 8 chars
-
-    for (int i = 7; i >= 0; --i) {
-        symbol[i] = static_cast<char>(symbol_id & 0xFF);
-        symbol_id >>= 8;
-    }
-
-    return symbol;
-}
