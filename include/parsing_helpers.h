@@ -30,3 +30,15 @@ inline void read_string(const uint8_t* buffer, size_t offset, char* dest, size_t
     // read into destination buffer
     std::memcpy(dest, buffer + offset, length);
 }
+
+
+inline std::string clean_symbol(const char* symbol_raw) {
+    std::string s(symbol_raw, 8);
+    // Remove trailing spaces
+    size_t end = s.find_last_not_of(' ');
+    if (end != std::string::npos)
+        s.erase(end + 1);
+    else
+        s.clear(); 
+    return s;
+}

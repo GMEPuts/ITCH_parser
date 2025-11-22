@@ -1,5 +1,6 @@
 #include "../include/itch_parser.h"
 #include "../include/parsing_helpers.h"
+#include "../include/constants.h"
 #include <iostream>
 #include <cstring>
 
@@ -16,7 +17,10 @@ uint16_t ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
             msg.quantity = read_uint32(buffer, 20);
             if (symbol_lookup[msg.symbol_id].seen == false) {
                 // populate symbol lookup with human readable symbol at first occurrence
-                read_string(buffer, 24, symbol_lookup[msg.symbol_id].symbol, 8);
+                char symb[9];
+                read_string(buffer, 24, symb, 8);
+                symb[8] = '\0'; // null terminate
+                symbol_lookup[msg.symbol_id].symbol = clean_symbol(symb);
                 symbol_lookup[msg.symbol_id].seen = true;
             }
             msg.price = read_uint32(buffer, 32);
@@ -33,7 +37,10 @@ uint16_t ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
             msg.quantity = read_uint32(buffer, 20);
             if (symbol_lookup[msg.symbol_id].seen == false) {
                 // populate symbol lookup with human readable symbol at first occurrence
-                read_string(buffer, 24, symbol_lookup[msg.symbol_id].symbol, 8);
+                char symb[9];
+                read_string(buffer, 24, symb, 8);
+                symb[8] = '\0'; // null terminate
+                symbol_lookup[msg.symbol_id].symbol = clean_symbol(symb);
                 symbol_lookup[msg.symbol_id].seen = true;
             }
             msg.price = read_uint32(buffer, 32);
@@ -95,6 +102,7 @@ uint16_t ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
         }
 
         default:
+            std::cout << "Ignoring message type: " << message_type << "\n";
             break;
     }
     return 0;
@@ -109,6 +117,13 @@ void ITCHParser::handle_add_order(const AddOrderMessage& msg) {
     Orderbook& book = books[msg.symbol_id];
     if (!book.initialized) {
         book.initialize(msg.symbol_id, symbol_lookup[msg.symbol_id].symbol);
+    }
+    if constexpr (DEBUG_MODE) {
+        std::cout << "Book before add order: " << std::endl;
+        std::cout << "--------------------------------" << std::endl;
+        book.print_book(5);
+        std::cout << "--------------------------------" << std::endl;
+        msg.display();
     }
     book.add_quantity(order);
 
@@ -126,6 +141,14 @@ void ITCHParser::handle_order_executed(const OrderExecutedMessage& msg) {
 
     Order& order = it->second;
     order.quantity -= msg.quantity_executed; // reduce quantity
+
+    if constexpr (DEBUG_MODE) {
+        std::cout << "Book before order executed: " << std::endl;
+        std::cout << "--------------------------------" << std::endl;
+        book.print_book(5);
+        std::cout << "--------------------------------" << std::endl;
+        msg.display();
+    }
 
     book.reduce_quantity(order.price, msg.quantity_executed, order.is_buy);
 
@@ -145,6 +168,14 @@ void ITCHParser::handle_order_cancel(const OrderCancelMessage& msg) {
     Order& order = it->second;
     order.quantity -= msg.quantity_cancelled; // reduce quantity
 
+    if constexpr (DEBUG_MODE) {
+        std::cout << "Book before order cancelled: " << std::endl;
+        std::cout << "--------------------------------" << std::endl;
+        book.print_book(5);
+        std::cout << "--------------------------------" << std::endl;
+        msg.display();
+    }
+
     book.reduce_quantity(order.price, msg.quantity_cancelled, order.is_buy);
 
     if (order.quantity == 0) { // shouldn't happen since would get a delete instead of cancel
@@ -162,6 +193,14 @@ void ITCHParser::handle_order_delete(const OrderDeleteMessage& msg) {
 
     Order& order = it->second;
 
+    if constexpr (DEBUG_MODE) {
+        std::cout << "Book before order deleted: " << std::endl;
+        std::cout << "--------------------------------" << std::endl;
+        book.print_book(5);
+        std::cout << "--------------------------------" << std::endl;
+        msg.display();
+    }
+
     book.reduce_quantity(order.price, order.quantity, order.is_buy);
 
     orders.erase(it);
@@ -177,6 +216,14 @@ void ITCHParser::handle_order_replace(const OrderReplaceMessage& msg) {
     
     Order& old_order = it->second;
     Order new_order = msg.create_order(old_order.is_buy);
+
+    if constexpr (DEBUG_MODE) {
+        std::cout << "Book before order replaced: " << std::endl;
+        std::cout << "--------------------------------" << std::endl;
+        book.print_book(5);
+        std::cout << "--------------------------------" << std::endl;
+        msg.display();
+    }
 
     book.reduce_quantity(old_order.price, old_order.quantity, old_order.is_buy);
 

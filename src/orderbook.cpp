@@ -4,13 +4,11 @@
 #include <algorithm>
 #include <string>
 #include "../include/data_structs.h"
-
+#include "../include/constants.h"
 // To store price levels, I am using std::vector.
 // This may not be the most optimal, depending on the number of levels we have to maintain.
 // If we have many price levels, vector becomes slow because we have O(N) insert / delete time if not the last level, but good cache locality overall.
 // In this case I would use something like std::map<Price, Quantity> for O(log N) search / insert / update time.
-
-constexpr int MAX_PRICE_LEVELS_GUESS = 100;
 
 class Orderbook {
 private:
@@ -70,24 +68,26 @@ public:
 
     Orderbook() = default;
 
-    void initialize(uint16_t symb_id, const char* sym_name) {
+    // lazy initialization
+    void initialize(uint16_t symb_id, std::string symb) {
         if (initialized) return;          // don't re-init
         symbol_id = symb_id;
-        symbol = std::string(sym_name);
+        symbol = symb;
         bids.reserve(MAX_PRICE_LEVELS_GUESS);
         asks.reserve(MAX_PRICE_LEVELS_GUESS);
         initialized = true;
     }
 
     void print_book(size_t levels) {
-        std::cout << "\n=== Order Book: " << symbol << " (Top " << levels << " Levels) ===\n";
-        std::cout << "Bids:\n";
-        for (int i = 0; i < levels && i < bids.size(); ++i) {
-            bids[i].display();
+        std::cout << "\n=== Orderbook for " << symbol << " (Top " << levels << " Levels) ===\n";
+        
+        std::cout << "------ Asks ------\n";
+        for (int i = std::min(levels - 1, asks.size() - 1); i >= 0; --i) {
+            asks[i].display(i);
         }
-        std::cout << "Asks:\n";
-        for (int i = 0; i < levels && i < asks.size(); ++i) {
-            asks[i].display();
+        std::cout << "------ Bids ------\n";
+        for (int i = 0; i < levels && i < bids.size(); ++i) {
+            bids[i].display(i);
         }
     }
 

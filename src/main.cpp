@@ -1,38 +1,36 @@
-#include <cstdint>
-#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <cstdint>
 #include <cstring>
-#include "../include/pcap_structs.h"
 #include "../include/itch_parser.h"
+#include "../include/pcap_structs.h"
 
-// ---- your existing helpers (shortened) ----
-static inline uint16_t read_be16(const uint8_t* p) {
+static inline uint16_t be16(const uint8_t* p) {
     return (uint16_t(p[0]) << 8) | uint16_t(p[1]);
 }
 
-static inline uint64_t read_be64(const uint8_t* p) {
+static inline uint64_t be64(const uint8_t* p) {
     uint64_t v = 0;
-    for (int i = 0; i < 8; ++i) v = (v << 8) | uint64_t(p[i]);
+    for (int i = 0; i < 8; ++i) v = (v << 8) | p[i];
     return v;
 }
 
-void process_moldudp64_payload(ITCHParser& parser, const uint8_t* buf, size_t len) {
+void parse_moldudp(const uint8_t* p, size_t len, ITCHParser& parser) {
     if (len < 20) return;
 
-    const uint8_t* p   = buf;
-    const uint8_t* end = buf + len;
-
+    // 10-byte session
     char session[11];
     std::memcpy(session, p, 10);
     session[10] = '\0';
     p += 10;
 
-    uint64_t seq = read_be64(p);
+    // 8-byte seq (big-endian)
+    uint64_t seq = be64(p);
     p += 8;
 
-    uint16_t msgCount = read_be16(p);
+    // 2-byte msgCount (big-endian)
+    uint16_t msgCount = be16(p);
     p += 2;
 
     std::cout << "MoldUDP64 session=" << session
@@ -40,12 +38,18 @@ void process_moldudp64_payload(ITCHParser& parser, const uint8_t* buf, size_t le
               << " msgCount=" << msgCount << "\n";
 
     for (uint16_t i = 0; i < msgCount; ++i) {
-        if (p + 2 > end) break;
+        if (p + 2 > p + len) {
+            std::cerr << "  Truncated: no space for msg_len\n";
+            return;
+        }
 
-        uint16_t msgLen = read_be16(p);
+        uint16_t msgLen = be16(p);
         p += 2;
 
-        if (p + msgLen > end) break;
+        if (p + msgLen > p + len) {
+            std::cerr << "  Truncated: not enough bytes for ITCH msg\n";
+            return;
+        }
 
         const uint8_t* msg = p;
         p += msgLen;
@@ -56,49 +60,54 @@ void process_moldudp64_payload(ITCHParser& parser, const uint8_t* buf, size_t le
         }
     }
 }
+
 int main() {
     const char* filename = "../data/nasdaq.pcap";
 
-    std::ifstream in(filename, std::ios::binary);
-    if (!in) {
-        std::cerr << "Failed to open file: " << filename << "\n";
+    std::ifstream f(filename, std::ios::binary);
+    if (!f) {
+        std::cerr << "Cannot open file\n";
         return 1;
     }
 
     file_header_t file_hdr{};
-    if (!in.read(reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr))) {
-        std::cerr << "Failed to read file_header_t\n";
+    if (!f.read(reinterpret_cast<char*>(&file_hdr), sizeof(file_hdr))) {
+        std::cerr << "Failed to read PCAP file header\n";
         return 1;
     }
 
     ITCHParser parser;
 
     while (true) {
-        packet_headers_t pkt_hdr{};
-
-        if (!in.read(reinterpret_cast<char*>(&pkt_hdr), sizeof(pkt_hdr))) {
-            if (!in.eof())
-                std::cerr << "Error reading packet_headers_t\n";
-            break;
+        packet_headers_t pkt{};
+        // Read record header
+        if (!f.read(reinterpret_cast<char*>(&pkt.m_pcap_hdr),
+                    sizeof(record_header_t))) {
+            break; // EOF
         }
 
-        uint32_t incl_len = pkt_hdr.m_pcap_hdr.incl_len;
-        if (incl_len < packet_headers_t::NETWORK_HEADER_LENGTH) {
-            std::cerr << "incl_len < NETWORK_HEADER_LENGTH, skipping\n";
+        // Need enough bytes for ether+ip+udp (42 bytes)
+        if (pkt.m_pcap_hdr.incl_len < packet_headers_t::NETWORK_HEADER_LENGTH) {
+            f.seekg(pkt.m_pcap_hdr.incl_len, std::ios::cur);
             continue;
         }
 
-        uint32_t udp_payload_len = incl_len - packet_headers_t::NETWORK_HEADER_LENGTH;
-        if (udp_payload_len == 0) continue;
+        // Read exactly what NETWORK_HEADER_LENGTH counts: ether + ip + udp
+        f.read(reinterpret_cast<char*>(&pkt.m_ether_header), sizeof(ether_header));
+        std::memset(pkt.m_vlan_header, 0, sizeof(pkt.m_vlan_header));
+        f.read(reinterpret_cast<char*>(&pkt.m_iphdr), sizeof(iphdr));
+        f.read(reinterpret_cast<char*>(&pkt.m_udphdr), sizeof(udphdr));
 
-        std::vector<uint8_t> payload(udp_payload_len);
-        if (!in.read(reinterpret_cast<char*>(payload.data()), udp_payload_len)) {
-            std::cerr << "Truncated UDP payload\n";
+        // Payload length and data
+        uint32_t payload_len = pkt.m_pcap_hdr.incl_len - packet_headers_t::NETWORK_HEADER_LENGTH;
+
+        std::vector<uint8_t> payload(payload_len);
+        if (!f.read(reinterpret_cast<char*>(payload.data()), payload_len)) {
+            std::cerr << "Truncated payload\n";
             break;
         }
 
-        // MoldUDP64 → ITCH
-        process_moldudp64_payload(parser, payload.data(), udp_payload_len);
+        parse_moldudp(payload.data(), payload_len, parser);
     }
 
     return 0;

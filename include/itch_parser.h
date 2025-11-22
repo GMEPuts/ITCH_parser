@@ -15,7 +15,6 @@ private:
 
 public:
     ITCHParser() = default;
-
     // Parse a single ITCH message
     uint16_t parse_message(const uint8_t* buffer, size_t length);
 

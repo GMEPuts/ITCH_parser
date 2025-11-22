@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <iostream>
+#include <iomanip>
 
 inline double price_to_double(uint32_t price) {
     return price / 10000.0; // since implied decimals = 4
@@ -10,8 +11,11 @@ struct PriceLevel {
     uint32_t price;
     uint32_t quantity;
 
-    void display() const {
-        std::cout << quantity << " @ " << price_to_double(price) << "\n";
+    void display(size_t level) const {
+        std::cout << "level " << level << " | " 
+                  << std::setw(6) << std::right << quantity 
+                  << " @  $ " 
+                  << std::setw(8) << std::left << std::fixed << std::setprecision(2) << price_to_double(price) << "\n";
     }
 };
 
@@ -32,7 +36,7 @@ struct LevelSearchResult {
 
 struct SymbolInfo {
     bool seen = false;
-    char symbol[8]{};
+    std::string symbol;
 
     SymbolInfo() = default;
 };
