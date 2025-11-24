@@ -68,16 +68,25 @@ public:
 
     void print_book(size_t levels) {
         std::cout << "\n=== Orderbook for " << symbol << " (Top " << levels << " Levels) ===\n";
-        
+
         std::cout << "------ Asks ------\n";
-        for (int i = std::min(levels - 1, asks.size() - 1); i >= 0; --i) {
-            asks[i].display(i);
+        if (levels > 0 && !asks.empty()) {
+            size_t n = std::min(levels, asks.size());
+            for (size_t i = 0; i < n; ++i) {
+                size_t idx = n - 1 - i;
+                asks[idx].display(idx);
+            }
         }
+
         std::cout << "------ Bids ------\n";
-        for (int i = 0; i < levels && i < bids.size(); ++i) {
-            bids[i].display(i);
+        if (levels > 0 && !bids.empty()) {
+            size_t n = std::min(levels, bids.size());
+            for (size_t i = 0; i < n; ++i) {
+                bids[i].display(i);
+            }
         }
     }
+
 
     void add_quantity(const Order& order) {
         if (order.is_buy) {
