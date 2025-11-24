@@ -27,15 +27,9 @@ private:
                 return level.price > target_price;
             }
         ); // finds first level <= search price
-        int idx = static_cast<int>(it - bids.begin());
-
-        if (it != bids.end() && it->price == search_price) {
-            // level found
-            return LevelSearchResult { true, idx };
-        } else {
-            // not found
-            return LevelSearchResult { false, idx };
-        }
+        size_t idx = it - bids.begin();
+        bool found = (it != bids.end() && it->price == search_price);
+        return {found, idx};
     }
 
     LevelSearchResult search_asks_for_level(uint32_t search_price) {
@@ -50,15 +44,9 @@ private:
                 return level.price < target_price;
             }
         ); // finds first level >= search price
-        int idx = static_cast<int>(it - asks.begin());
-
-        if (it != asks.end() && it->price == search_price) {
-            // level found
-            return LevelSearchResult { true, idx };
-        } else {
-            // not found
-            return LevelSearchResult { false, idx };
-        }
+        size_t idx = it - asks.begin();
+        bool found = (it != asks.end() && it->price == search_price);
+        return {found, idx};
     }
 
 public:
@@ -92,20 +80,25 @@ public:
     }
 
     void add_quantity(const Order& order) {
-        // find price level using binary search
         if (order.is_buy) {
             LevelSearchResult result = search_bids_for_level(order.price);
+
             if (result.found) {
-                bids[result.idx].quantity += order.quantity;
+                // add to existing level
+                auto& level = bids[result.idx];
+                level.quantity += order.quantity;
             } else {
-                bids.insert(bids.begin()+result.idx, PriceLevel{order.price, order.quantity});
+                // insert new level
+                bids.insert(bids.begin() + result.idx, PriceLevel{order.price, order.quantity});
             }
         } else {
             LevelSearchResult result = search_asks_for_level(order.price);
+
             if (result.found) {
-                asks[result.idx].quantity += order.quantity;
+                auto& level = asks[result.idx];
+                level.quantity += order.quantity;
             } else {
-                asks.insert(asks.begin()+result.idx, PriceLevel{order.price, order.quantity});
+                asks.insert(asks.begin() + result.idx, PriceLevel{order.price, order.quantity});
             }
         }
     }
@@ -113,24 +106,25 @@ public:
     void reduce_quantity(uint32_t price, uint32_t quantity, bool is_buy) {
         if (is_buy) {
             LevelSearchResult result = search_bids_for_level(price);
-            if (result.found) {
-                uint32_t remaining_quantity = bids[result.idx].quantity - quantity;
-                if (remaining_quantity == 0) {
-                    bids.erase(bids.begin()+result.idx);
-                } else {
-                    bids[result.idx].quantity = remaining_quantity;
-                }
-            } // do not do anything if not found
+            if (!result.found) return;
+
+            auto& level = bids[result.idx];
+            if (quantity >= level.quantity) {
+                // quantity should never exceed level quantity, but just in case
+                bids.erase(bids.begin() + result.idx);
+            } else {
+                level.quantity -= quantity;
+            }
         } else {
             LevelSearchResult result = search_asks_for_level(price);
-            if (result.found) {
-                uint32_t remaining_quantity = asks[result.idx].quantity - quantity;
-                if (remaining_quantity == 0) {
-                    asks.erase(asks.begin()+result.idx);
-                } else {
-                    asks[result.idx].quantity = remaining_quantity;
-                }
-            } // do not do anything if not found
+            if (!result.found) return;
+
+            auto& level = asks[result.idx];
+            if (quantity >= level.quantity) {
+                asks.erase(asks.begin() + result.idx);
+            } else {
+                level.quantity -= quantity;
+            }
         }
     }
 };

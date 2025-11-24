@@ -31,7 +31,7 @@ struct Order {
 
 struct LevelSearchResult {
     bool found;
-    int idx; // if not found, this is the index to update, if not found, index to insert at
+    size_t idx; // if not found, this is the index to update, if not found, index to insert at
 };
 
 struct SymbolInfo {
