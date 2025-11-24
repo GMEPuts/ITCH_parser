@@ -4,7 +4,6 @@
 #include <iostream>
 #include <cstring>
 
-// Implement parse_message as a member of ITCHParser
 uint16_t ITCHParser::parse_message(const uint8_t* buffer, size_t length) {
     if (length == 0) return 0;
 
@@ -127,7 +126,6 @@ void ITCHParser::handle_add_order(const AddOrderMessage& msg) {
     }
     book.add_quantity(order);
 
-    // add to orders map
     orders.insert({order_id, order});
 }
 
